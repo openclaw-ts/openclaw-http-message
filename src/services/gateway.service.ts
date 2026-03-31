@@ -116,6 +116,7 @@ export class GatewayService {
       this.connected = false;
       this.status = 'disconnected';
       this.rejectAllPending('disconnected');
+      console.log(`autoReconnect: ${this.autoReconnect}`);
       if (this.autoReconnect) {
         this.scheduleReconnect();
       }
@@ -283,8 +284,6 @@ export class GatewayService {
         this.status = 'pairing';
         return;
       }
-      this.autoReconnect = false;
-      this.disconnect();
     }
   }
 
