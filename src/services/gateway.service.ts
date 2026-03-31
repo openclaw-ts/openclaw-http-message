@@ -471,31 +471,41 @@ export class GatewayService {
     });
 
     const handleChatEvent = (event: string, payload: Record<string, unknown>) => {
-      if (event === 'chat.delta' || event === 'chat.final' || event === 'chat.error' || event === 'chat.aborted') {
-        const p = payload as Record<string, unknown>;
-        const payloadSessionKey = typeof p.sessionKey === 'string' ? p.sessionKey : '';
-        const payloadRunId = typeof p.runId === 'string' ? p.runId : '';
+      if (event !== 'chat') return;
 
-        if (payloadSessionKey !== to) return;
+      const p = payload as Record<string, unknown>;
+      const payloadSessionKey = typeof p.sessionKey === 'string' ? p.sessionKey : '';
+      const payloadRunId = typeof p.runId === 'string' ? p.runId : '';
+      const state = typeof p.state === 'string' ? p.state : 'final';
 
-        if (payloadRunId && !resolvedRunId) {
-          resolvedRunId = payloadRunId;
-          runIdResolve(payloadRunId);
-        }
+      if (payloadSessionKey !== to) return;
 
-        const state = event.replace('chat.', '') as 'delta' | 'final' | 'error' | 'aborted';
-        const messagePayload = p.message as Record<string, unknown> | undefined;
-        const streamEvent: StreamMessageEvent = {
-          type: state,
-          runId: payloadRunId,
-          sessionKey: payloadSessionKey,
-          content: typeof messagePayload?.content === 'string' ? messagePayload.content : undefined,
-          messageId: typeof p.messageId === 'string' ? p.messageId : undefined,
-          errorMessage: typeof p.errorMessage === 'string' ? p.errorMessage : undefined,
-        };
-
-        onEvent(streamEvent);
+      if (payloadRunId && !resolvedRunId) {
+        resolvedRunId = payloadRunId;
+        runIdResolve(payloadRunId);
       }
+
+      const messagePayload = p.message as Record<string, unknown> | undefined;
+      let content: string | undefined;
+      if (messagePayload && typeof messagePayload.content === 'string') {
+        content = messagePayload.content;
+      } else if (Array.isArray(messagePayload?.content)) {
+        content = (messagePayload.content as unknown[])
+          .map((block: unknown) => (block as { text?: string })?.text)
+          .filter(Boolean)
+          .join('');
+      }
+
+      const streamEvent: StreamMessageEvent = {
+        type: state as StreamMessageEvent['type'],
+        runId: payloadRunId,
+        sessionKey: payloadSessionKey,
+        content,
+        messageId: typeof p.messageId === 'string' ? p.messageId : undefined,
+        errorMessage: typeof p.errorMessage === 'string' ? p.errorMessage : undefined,
+      };
+
+      onEvent(streamEvent);
     };
 
     const unsubscribe = this.onChatEvent(handleChatEvent);
