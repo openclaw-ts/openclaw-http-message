@@ -135,7 +135,7 @@ export class GatewayService {
         this.connectNonce =
           payload && typeof payload.nonce === 'string' ? payload.nonce : null;
         void this.handleChallenge();
-      } else if (msg.event?.startsWith('chat.')) {
+      } else if (msg.event === 'chat.delta' || msg.event === 'chat.final' || msg.event === 'chat.error' || msg.event === 'chat.aborted') {
         this.handleChatEvent(msg);
       }
       // 触发所有事件处理器（包括 chat 事件）
@@ -339,6 +339,52 @@ export class GatewayService {
     });
   }
 
+  private onChatEvent(handler: (event: string, payload: Record<string, unknown>) => void): () => void {
+    this.eventHandlers.push(handler);
+    return () => {
+      this.eventHandlers = this.eventHandlers.filter((h) => h !== handler);
+    };
+  }
+
+  private waitForChatEvents(
+    sessionKey: string,
+    runId: string,
+    timeout = 120000,
+  ): Promise<ChatEvent[]> {
+    return new Promise((resolve, reject) => {
+      const events: ChatEvent[] = [];
+      const timer = setTimeout(() => {
+        off();
+        reject(new Error('timeout waiting for chat response'));
+      }, timeout);
+
+      const off = this.onChatEvent((event, payload) => {
+        const p = payload as Record<string, unknown>;
+        const payloadSessionKey = typeof p.sessionKey === 'string' ? p.sessionKey : '';
+        const payloadRunId = typeof p.runId === 'string' ? p.runId : '';
+
+        if (payloadSessionKey !== sessionKey || payloadRunId !== runId) return;
+
+        if (event === 'chat.delta' || event === 'chat.final' || event === 'chat.error' || event === 'chat.aborted') {
+          const state = event.replace('chat.', '') as 'delta' | 'final' | 'error' | 'aborted';
+          events.push({
+            state,
+            runId: payloadRunId,
+            sessionKey: payloadSessionKey,
+            message: p.message as Record<string, unknown> | undefined,
+            errorMessage: p.errorMessage as string | undefined,
+          });
+
+          if (state === 'final' || state === 'error' || state === 'aborted') {
+            clearTimeout(timer);
+            off();
+            resolve(events);
+          }
+        }
+      });
+    });
+  }
+
   async send(method: string, params: JsonPayload): Promise<JsonPayload> {
     const id = this.genId('req');
     console.log(`Sending request: ${method} with id ${id}`);
@@ -353,7 +399,39 @@ export class GatewayService {
         message,
         deliver,
         idempotencyKey: this.genIdempotencyKey(),
-      });
+      }) as { runId?: string; status?: string };
+
+      console.log(`chat.send response: ${JSON.stringify(result)}`);
+
+      if (result.runId) {
+        const chatEvents = await this.waitForChatEvents(to, result.runId);
+        console.log(`chat events received: ${JSON.stringify(chatEvents)}`);
+
+        const finalEvent = chatEvents.find(e => e.state === 'final');
+        const errorEvent = chatEvents.find(e => e.state === 'error');
+        const abortedEvent = chatEvents.find(e => e.state === 'aborted');
+
+        if (errorEvent) {
+          throw new Error(errorEvent.errorMessage || 'chat error');
+        }
+        if (abortedEvent) {
+          return { runId: result.runId, status: 'aborted', events: chatEvents };
+        }
+
+        const responseContent = chatEvents
+          .filter(e => e.state === 'delta' || e.state === 'final')
+          .map(e => e.message?.content)
+          .filter(Boolean)
+          .join('');
+
+        return {
+          runId: result.runId,
+          status: 'ok',
+          content: responseContent,
+          events: chatEvents,
+        };
+      }
+
       console.log(`sendMessage result: ${JSON.stringify(result)}`);
       return result;
     } catch (err) {
@@ -361,6 +439,69 @@ export class GatewayService {
       console.error(`sendMessage error: ${err}`);
       throw err;
     }
+  }
+
+  sendMessageStream(
+    to: string,
+    message: string,
+    onEvent: (event: StreamMessageEvent) => void,
+  ): { runId: Promise<string>; unsubscribe: () => void } {
+    const idempotencyKey = this.genIdempotencyKey();
+    let resolvedRunId: string | null = null;
+    let runIdResolve: (id: string) => void;
+    const runIdPromise = new Promise<string>((resolve) => {
+      runIdResolve = resolve;
+    });
+
+    const handleChatEvent = (event: string, payload: Record<string, unknown>) => {
+      if (event === 'chat.delta' || event === 'chat.final' || event === 'chat.error' || event === 'chat.aborted') {
+        const p = payload as Record<string, unknown>;
+        const payloadSessionKey = typeof p.sessionKey === 'string' ? p.sessionKey : '';
+        const payloadRunId = typeof p.runId === 'string' ? p.runId : '';
+
+        if (payloadSessionKey !== to) return;
+
+        if (payloadRunId && !resolvedRunId) {
+          resolvedRunId = payloadRunId;
+          runIdResolve(payloadRunId);
+        }
+
+        const state = event.replace('chat.', '') as 'delta' | 'final' | 'error' | 'aborted';
+        const messagePayload = p.message as Record<string, unknown> | undefined;
+        const streamEvent: StreamMessageEvent = {
+          type: state,
+          runId: payloadRunId,
+          sessionKey: payloadSessionKey,
+          content: typeof messagePayload?.content === 'string' ? messagePayload.content : undefined,
+          messageId: typeof p.messageId === 'string' ? p.messageId : undefined,
+          errorMessage: typeof p.errorMessage === 'string' ? p.errorMessage : undefined,
+        };
+
+        onEvent(streamEvent);
+      }
+    };
+
+    const unsubscribe = this.onChatEvent(handleChatEvent);
+
+    this.send('chat.send', {
+      sessionKey: to,
+      message,
+      deliver: false,
+      idempotencyKey,
+    }).catch((err) => {
+      console.error(`sendMessageStream error: ${err}`);
+      onEvent({
+        type: 'error',
+        runId: resolvedRunId || '',
+        sessionKey: to,
+        errorMessage: err instanceof Error ? err.message : String(err),
+      });
+    });
+
+    return {
+      runId: runIdPromise,
+      unsubscribe,
+    };
   }
 
   subscribeToStream(

@@ -171,26 +171,22 @@ export default definePluginEntry({
 
               respondSSE(res);
 
-              const sessionKey = to || '*';
-              const unsubscribe = gatewayService.subscribeToStream(
-                sessionKey,
+              const streamController = gatewayService.sendMessageStream(
+                to,
+                message,
                 (event) => {
                   sendSSE(res, 'message', event);
                   if (event.type === 'final' || event.type === 'error' || event.type === 'aborted') {
-                    unsubscribe();
                     res.end();
                   }
                 },
               );
 
-              try {
-                await gatewayService.sendMessage(to, message, true);
-              } catch (err) {
+              streamController.runId.catch((err) => {
                 const error = err instanceof Error ? err.message : String(err);
                 sendSSE(res, 'error', { error });
-                unsubscribe();
                 res.end();
-              }
+              });
 
               return true;
             }
