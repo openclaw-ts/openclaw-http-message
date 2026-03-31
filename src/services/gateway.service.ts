@@ -164,22 +164,29 @@ export class GatewayService {
     const runId = typeof payload.runId === 'string' ? payload.runId : '';
     const message = payload.message as Record<string, unknown> | undefined;
 
-    let content: string | undefined;
-    if (message && typeof message.content === 'string') {
-      content = message.content;
-    }
+    const state = msg.event?.replace('chat.', '') || 'final';
 
     const streamEvent: StreamMessageEvent = {
       type: (msg.event?.replace('chat.', '') as StreamMessageEvent['type']) || 'final',
       runId,
       sessionKey,
-      content,
+      content: typeof message?.content === 'string' ? message.content : undefined,
       messageId: typeof payload.messageId === 'string' ? payload.messageId : undefined,
       errorMessage: typeof payload.errorMessage === 'string' ? payload.errorMessage : undefined,
     };
 
     this.broadcastStreamEvent(sessionKey, streamEvent);
     this.broadcastStreamEvent('*', streamEvent);
+
+    for (const handler of this.eventHandlers) {
+      handler('chat', {
+        state,
+        runId,
+        sessionKey,
+        message: payload.message,
+        errorMessage: payload.errorMessage,
+      });
+    }
   }
 
   private broadcastStreamEvent(sessionKey: string, event: StreamMessageEvent): void {
