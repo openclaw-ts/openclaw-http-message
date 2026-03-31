@@ -33,9 +33,13 @@ function respondSSE(res: any): void {
 }
 
 function sendSSE(res: any, event: string, data: unknown): void {
-  const payload = JSON.stringify(data);
-  res.write(`event: ${event}\n`);
-  res.write(`data: ${payload}\n\n`);
+  if (res.writableEnded || res.finished) return;
+  try {
+    const payload = JSON.stringify(data);
+    res.write(`event: ${event}\n`);
+    res.write(`data: ${payload}\n\n`);
+  } catch {
+  }
 }
 
 export default definePluginEntry({
@@ -171,21 +175,31 @@ export default definePluginEntry({
 
               respondSSE(res);
 
+              let closed = false;
               const streamController = gatewayService.sendMessageStream(
                 to,
                 message,
                 (event) => {
+                  if (closed) return;
                   sendSSE(res, 'message', event);
                   if (event.type === 'final' || event.type === 'error' || event.type === 'aborted') {
+                    closed = true;
                     res.end();
                   }
                 },
               );
 
               streamController.runId.catch((err) => {
+                if (closed) return;
                 const error = err instanceof Error ? err.message : String(err);
                 sendSSE(res, 'error', { error });
+                closed = true;
                 res.end();
+              });
+
+              req.on('close', () => {
+                closed = true;
+                streamController.unsubscribe();
               });
 
               return true;
