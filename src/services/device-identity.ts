@@ -1,9 +1,14 @@
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import type { DeviceIdentity } from '../types/index.js';
 
-const DEVICE_ID_FILE = path.join(process.cwd(), '.device-identity.json');
+const DEVICE_ID_FILE = path.join(
+  os.homedir(),
+  '.openclaw',
+  '.device-identity.json',
+);
 
 function bufToBase64Url(buf: Buffer): string {
   return buf

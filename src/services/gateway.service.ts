@@ -82,7 +82,7 @@ export class GatewayService {
 
     this.ws = new WebSocket(this.wsUrl, {
       headers: {
-        origin: 'http://localhost:3030',
+        origin: 'http://127.0.0.1:18789',
       },
     });
 
@@ -357,6 +357,7 @@ export class GatewayService {
       console.log(`sendMessage result: ${JSON.stringify(result)}`);
       return result;
     } catch (err) {
+      console.error(`sendMessage error:`, JSON.stringify(err));
       console.error(`sendMessage error: ${err}`);
       throw err;
     }
