@@ -1,0 +1,9 @@
+{
+  "id": "openclaw-http-message",
+  "name": "Openclaw http Message",
+  "description": "Openclaw Skill Management create update delete by http",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false
+  }
+}

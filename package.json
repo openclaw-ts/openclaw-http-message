@@ -1,0 +1,38 @@
+{
+  "name": "@acs/openclaw-http-message",
+  "version": "1.0.0",
+  "description": "acs openclaw http message",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "acs",
+    "http",
+    "message"
+  ],
+  "author": "mankong@mankong.me",
+  "license": "ISC",
+  "packageManager": "pnpm@10.33.0",
+  "type": "module",
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "compat": {
+      "pluginApi": ">=2026.3.24-beta.2",
+      "minGatewayVersion": "2026.3.24-beta.2"
+    },
+    "build": {
+      "openclawVersion": "2026.3.24-beta.2",
+      "pluginSdkVersion": "2026.3.24-beta.2"
+    }
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1",
+    "openclaw": "^2026.3.28",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "ws": "^8.20.0"
+  }
+}
