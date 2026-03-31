@@ -135,10 +135,9 @@ export class GatewayService {
         this.connectNonce =
           payload && typeof payload.nonce === 'string' ? payload.nonce : null;
         void this.handleChallenge();
-      } else if (msg.event === 'chat.delta' || msg.event === 'chat.final' || msg.event === 'chat.error' || msg.event === 'chat.aborted') {
+      } else if (msg.event === 'chat') {
         this.handleChatEvent(msg);
       }
-      // 触发所有事件处理器（包括 chat 事件）
       for (const handler of this.eventHandlers) {
         handler(msg.event ?? '', msg.payload ?? {});
       }
@@ -163,14 +162,23 @@ export class GatewayService {
     const sessionKey = typeof payload.sessionKey === 'string' ? payload.sessionKey : 'default';
     const runId = typeof payload.runId === 'string' ? payload.runId : '';
     const message = payload.message as Record<string, unknown> | undefined;
+    const state = typeof payload.state === 'string' ? payload.state : 'final';
 
-    const state = msg.event?.replace('chat.', '') || 'final';
+    let content: string | undefined;
+    if (message && typeof message.content === 'string') {
+      content = message.content;
+    } else if (Array.isArray(message?.content)) {
+      content = (message.content as unknown[])
+        .map((block: unknown) => (block as { text?: string })?.text)
+        .filter(Boolean)
+        .join('');
+    }
 
     const streamEvent: StreamMessageEvent = {
-      type: (msg.event?.replace('chat.', '') as StreamMessageEvent['type']) || 'final',
+      type: (state || 'final') as StreamMessageEvent['type'],
       runId,
       sessionKey,
-      content: typeof message?.content === 'string' ? message.content : undefined,
+      content,
       messageId: typeof payload.messageId === 'string' ? payload.messageId : undefined,
       errorMessage: typeof payload.errorMessage === 'string' ? payload.errorMessage : undefined,
     };
@@ -372,20 +380,22 @@ export class GatewayService {
 
         if (payloadSessionKey !== sessionKey || payloadRunId !== runId) return;
 
-        if (event === 'chat.delta' || event === 'chat.final' || event === 'chat.error' || event === 'chat.aborted') {
-          const state = event.replace('chat.', '') as 'delta' | 'final' | 'error' | 'aborted';
-          events.push({
-            state,
-            runId: payloadRunId,
-            sessionKey: payloadSessionKey,
-            message: p.message as Record<string, unknown> | undefined,
-            errorMessage: p.errorMessage as string | undefined,
-          });
+        if (event === 'chat') {
+          const state = p.state as string;
+          if (state === 'delta' || state === 'final' || state === 'error' || state === 'aborted') {
+            events.push({
+              state,
+              runId: payloadRunId,
+              sessionKey: payloadSessionKey,
+              message: p.message as Record<string, unknown> | undefined,
+              errorMessage: p.errorMessage as string | undefined,
+            });
 
-          if (state === 'final' || state === 'error' || state === 'aborted') {
-            clearTimeout(timer);
-            off();
-            resolve(events);
+            if (state === 'final' || state === 'error' || state === 'aborted') {
+              clearTimeout(timer);
+              off();
+              resolve(events);
+            }
           }
         }
       });
